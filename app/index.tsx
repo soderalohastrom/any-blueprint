@@ -1,4 +1,11 @@
-import { useState } from 'react';
+/**
+ * Blueprint Vision - Main Screen
+ * HANDSOME CLAUDE IMPLEMENTATION 🎩
+ * 
+ * A beautiful chat-like interface for generating stunning blueprints
+ */
+
+import { useState, useCallback } from 'react';
 import {
   View,
   Text,
@@ -8,51 +15,127 @@ import {
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  Image,
+  ActivityIndicator,
+  Animated,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-/**
- * Blueprint Vision - Main Screen
- * 
- * TODO for competing LLMs:
- * 1. Implement LLM prompt enrichment (transform user input → detailed blueprint prompt)
- * 2. Connect to Blueprint MCP via API (StartDiagramJob, CheckJobStatus, DownloadDiagram)
- * 3. Add loading states and progress indication
- * 4. Display generated blueprint image
- * 5. Add error handling and retry logic
- * 
- * The Blueprint MCP expects:
- * - description: string (the enriched prompt)
- * - diagram_type: 'architecture' | 'flowchart' | 'data_flow' | 'sequence' | 'infographic' | 'generic'
- * - aspect_ratio: '1:1' | '16:9' | '9:16' | '4:3' | '3:4' | '21:9'
- * - resolution: '1K' | '2K'
- * 
- * See PRD for full architecture details.
- */
+// Generation states for rich UX
+type GenerationState = 
+  | 'idle' 
+  | 'enriching' 
+  | 'generating' 
+  | 'complete' 
+  | 'error';
+
+interface BlueprintResult {
+  imageUrl: string;
+  enrichedPrompt?: string;
+}
+
+// Status messages for each generation phase
+const STATUS_MESSAGES: Record<GenerationState, string> = {
+  idle: '',
+  enriching: '🧠 Transforming your vision into blueprint specs...',
+  generating: '⚙️ Rendering your blueprint...',
+  complete: '✨ Blueprint complete!',
+  error: '❌ Something went wrong',
+};
 
 export default function HomeScreen() {
   const [inputText, setInputText] = useState('');
-  const [isGenerating, setIsGenerating] = useState(false);
+  const [generationState, setGenerationState] = useState<GenerationState>('idle');
+  const [statusMessage, setStatusMessage] = useState('');
+  const [result, setResult] = useState<BlueprintResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [elapsedTime, setElapsedTime] = useState(0);
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     if (!inputText.trim()) return;
     
-    setIsGenerating(true);
-    
-    // TODO: Implement the magic here!
-    // 1. Send inputText to LLM for prompt enrichment
-    // 2. Call Blueprint MCP with enriched prompt
-    // 3. Poll for completion
-    // 4. Display result
-    
-    console.log('User vision:', inputText);
-    
-    // Placeholder - remove when implementing
-    setTimeout(() => {
-      setIsGenerating(false);
-      alert('Blueprint generation not yet implemented!\n\nYour vision: ' + inputText);
+    // Reset state
+    setGenerationState('enriching');
+    setStatusMessage(STATUS_MESSAGES.enriching);
+    setResult(null);
+    setError(null);
+    setElapsedTime(0);
+
+    // Start elapsed time counter
+    const startTime = Date.now();
+    const timer = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
+
+    try {
+      // Step 1: Start the generation job
+      const response = await fetch('/api/blueprint/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userInput: inputText,
+          diagram_type: 'infographic',
+          aspect_ratio: '16:9',
+          resolution: '2K',
+        }),
+      });
+
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.error || 'Failed to start generation');
+      }
+
+      const { jobId } = await response.json();
+      setGenerationState('generating');
+      setStatusMessage(STATUS_MESSAGES.generating);
+
+      // Step 2: Poll for completion
+      let complete = false;
+      while (!complete) {
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        const statusRes = await fetch(`/api/blueprint/status/${jobId}`);
+        const status = await statusRes.json();
+
+        if (status.status === 'complete') {
+          complete = true;
+          
+          // Step 3: Get the result
+          const downloadRes = await fetch(`/api/blueprint/download/${jobId}`);
+          const downloadData = await downloadRes.json();
+          
+          setResult({
+            imageUrl: downloadData.imageUrl,
+            enrichedPrompt: downloadData.enrichedPrompt,
+          });
+          setGenerationState('complete');
+          setStatusMessage(STATUS_MESSAGES.complete);
+          
+        } else if (status.status === 'failed') {
+          throw new Error(status.error || 'Generation failed');
+        }
+        // Otherwise keep polling...
+      }
+
+    } catch (err) {
+      console.error('Generation error:', err);
+      setGenerationState('error');
+      setError(err instanceof Error ? err.message : 'Unknown error occurred');
+      setStatusMessage(STATUS_MESSAGES.error);
+    } finally {
+      clearInterval(timer);
+    }
+  }, [inputText]);
+
+  const handleReset = () => {
+    setGenerationState('idle');
+    setResult(null);
+    setError(null);
+    setInputText('');
+    setElapsedTime(0);
   };
+
+  const isProcessing = generationState === 'enriching' || generationState === 'generating';
 
   return (
     <KeyboardAvoidingView
@@ -63,7 +146,7 @@ export default function HomeScreen() {
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header Section */}
+        {/* Header */}
         <View style={styles.headerSection}>
           <Text style={styles.title}>🔷 Blueprint Vision</Text>
           <Text style={styles.subtitle}>
@@ -71,27 +154,65 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* Instruction */}
-        <View style={styles.instructionContainer}>
-          <Ionicons name="bulb-outline" size={20} color="#4fd1c5" />
-          <Text style={styles.instruction}>
-            Describe any concept, metaphor, or system — and watch it become a blueprint
-          </Text>
-        </View>
+        {/* Instruction - only show when idle */}
+        {generationState === 'idle' && !result && (
+          <>
+            <View style={styles.instructionContainer}>
+              <Ionicons name="bulb-outline" size={20} color="#4fd1c5" />
+              <Text style={styles.instruction}>
+                Describe any concept, metaphor, or system — and watch it become a blueprint
+              </Text>
+            </View>
 
-        {/* Examples */}
-        <View style={styles.examplesContainer}>
-          <Text style={styles.examplesTitle}>Try something like:</Text>
-          <Text style={styles.example}>"The complexity of a project, like an iceberg"</Text>
-          <Text style={styles.example}>"How the subconscious processes dreams"</Text>
-          <Text style={styles.example}>"The architecture of a difficult conversation"</Text>
-        </View>
+            <View style={styles.examplesContainer}>
+              <Text style={styles.examplesTitle}>Try something like:</Text>
+              <TouchableOpacity onPress={() => setInputText('The complexity of a project, like an iceberg')}>
+                <Text style={styles.example}>"The complexity of a project, like an iceberg"</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setInputText('How the subconscious processes dreams')}>
+                <Text style={styles.example}>"How the subconscious processes dreams"</Text>
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setInputText('The architecture of a difficult conversation')}>
+                <Text style={styles.example}>"The architecture of a difficult conversation"</Text>
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
 
-        {/* Generated Blueprint Display Area */}
+        {/* Display Area */}
         <View style={styles.displayArea}>
-          {isGenerating ? (
+          {isProcessing ? (
             <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>⚙️ Rendering your vision...</Text>
+              <ActivityIndicator size="large" color="#4fd1c5" />
+              <Text style={styles.loadingText}>{statusMessage}</Text>
+              <Text style={styles.elapsedText}>{elapsedTime}s elapsed</Text>
+              {generationState === 'generating' && (
+                <Text style={styles.loadingHint}>
+                  Blueprint generation typically takes 15-30 seconds
+                </Text>
+              )}
+            </View>
+          ) : result ? (
+            <View style={styles.resultContainer}>
+              <Image
+                source={{ uri: result.imageUrl }}
+                style={styles.blueprintImage}
+                resizeMode="contain"
+              />
+              <View style={styles.resultActions}>
+                <TouchableOpacity style={styles.actionButton} onPress={handleReset}>
+                  <Ionicons name="refresh" size={20} color="#4fd1c5" />
+                  <Text style={styles.actionButtonText}>New Blueprint</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          ) : error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle" size={48} color="#f56565" />
+              <Text style={styles.errorText}>{error}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={handleReset}>
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
             </View>
           ) : (
             <View style={styles.placeholderContainer}>
@@ -102,7 +223,7 @@ export default function HomeScreen() {
         </View>
       </ScrollView>
 
-      {/* Input Section - Chat-like UI */}
+      {/* Input Section */}
       <View style={styles.inputSection}>
         <View style={styles.inputContainer}>
           <TextInput
@@ -113,20 +234,20 @@ export default function HomeScreen() {
             onChangeText={setInputText}
             multiline
             maxLength={500}
-            editable={!isGenerating}
+            editable={!isProcessing}
           />
           <TouchableOpacity
             style={[
               styles.sendButton,
-              (!inputText.trim() || isGenerating) && styles.sendButtonDisabled,
+              (!inputText.trim() || isProcessing) && styles.sendButtonDisabled,
             ]}
             onPress={handleSubmit}
-            disabled={!inputText.trim() || isGenerating}
+            disabled={!inputText.trim() || isProcessing}
           >
             <Ionicons
-              name={isGenerating ? 'hourglass-outline' : 'send'}
+              name={isProcessing ? 'hourglass-outline' : 'send'}
               size={24}
-              color={inputText.trim() && !isGenerating ? '#4fd1c5' : '#3a5a7a'}
+              color={inputText.trim() && !isProcessing ? '#4fd1c5' : '#3a5a7a'}
             />
           </TouchableOpacity>
         </View>
@@ -190,20 +311,20 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: '#4fd1c5',
     fontStyle: 'italic',
-    marginBottom: 6,
+    marginBottom: 8,
     paddingLeft: 12,
   },
   displayArea: {
     flex: 1,
-    minHeight: 300,
+    minHeight: 350,
     backgroundColor: '#0a1628',
     borderRadius: 16,
     borderWidth: 1,
     borderColor: '#1a365d',
-    borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
+    overflow: 'hidden',
   },
   placeholderContainer: {
     alignItems: 'center',
@@ -215,10 +336,73 @@ const styles = StyleSheet.create({
   },
   loadingContainer: {
     alignItems: 'center',
+    padding: 20,
+    gap: 16,
   },
   loadingText: {
     fontSize: 16,
     color: '#4fd1c5',
+    textAlign: 'center',
+  },
+  elapsedText: {
+    fontSize: 14,
+    color: '#5a7a9a',
+  },
+  loadingHint: {
+    fontSize: 12,
+    color: '#3a5a7a',
+    fontStyle: 'italic',
+    marginTop: 8,
+  },
+  resultContainer: {
+    width: '100%',
+    height: '100%',
+  },
+  blueprintImage: {
+    width: '100%',
+    height: '85%',
+    backgroundColor: '#0a1628',
+  },
+  resultActions: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    padding: 12,
+    gap: 16,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#1a365d',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    gap: 8,
+  },
+  actionButtonText: {
+    color: '#4fd1c5',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  errorContainer: {
+    alignItems: 'center',
+    padding: 20,
+    gap: 16,
+  },
+  errorText: {
+    fontSize: 14,
+    color: '#f56565',
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: '#1a365d',
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 20,
+  },
+  retryButtonText: {
+    color: '#4fd1c5',
+    fontSize: 14,
+    fontWeight: '600',
   },
   inputSection: {
     padding: 16,
