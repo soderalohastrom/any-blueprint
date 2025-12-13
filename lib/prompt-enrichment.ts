@@ -1,16 +1,30 @@
 /**
  * Prompt Enrichment Service - HANDSOME CLAUDE IMPLEMENTATION 🎩
  * 
- * Takes casual user input and transforms it into a detailed
- * blueprint specification using OpenRouter (Claude, GPT-4, etc.)
+ * Supports multiple LLM providers: OpenAI (direct) and OpenRouter (multi-model)
  */
 
 import { generateText } from 'ai';
 import { createOpenAI } from '@ai-sdk/openai';
 
 /**
+ * Available models for prompt enrichment
+ */
+export const AVAILABLE_MODELS = [
+  // OpenAI Models
+  { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', description: 'Fast & capable' },
+  { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', description: 'Quick & affordable' },
+  { id: 'gpt-4-turbo', name: 'GPT-4 Turbo', provider: 'openai', description: 'Most capable' },
+  // OpenRouter Models (requires OPENROUTER_API_KEY)
+  { id: 'anthropic/claude-sonnet-4-20250514', name: 'Claude Sonnet', provider: 'openrouter', description: 'Creative & precise' },
+  { id: 'anthropic/claude-3-opus', name: 'Claude Opus', provider: 'openrouter', description: 'Most capable Claude' },
+  { id: 'google/gemini-pro-1.5', name: 'Gemini Pro 1.5', provider: 'openrouter', description: 'Google\'s best' },
+] as const;
+
+export type ModelId = typeof AVAILABLE_MODELS[number]['id'];
+
+/**
  * System prompt for the Blueprint Architect
- * This is THE SECRET SAUCE - refined through real blueprint generation experience
  */
 export const BLUEPRINT_ARCHITECT_SYSTEM_PROMPT = `You are a Blueprint Architect - you transform abstract human concepts into detailed technical blueprint specifications for AI image generation.
 
@@ -51,68 +65,68 @@ Remember: You are translating CONCEPTS into VISUAL ENGINEERING SPECIFICATIONS.
 Think like an architect who dreams in impossible blueprints.`;
 
 /**
- * Initialize OpenRouter client (OpenAI-compatible)
+ * Get the appropriate LLM client based on model selection
  */
-function getOpenRouterClient() {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  
-  if (!apiKey) {
-    throw new Error('OPENROUTER_API_KEY is not set. Add it to your .env file.');
+function getLLMClient(modelId: string) {
+  const model = AVAILABLE_MODELS.find(m => m.id === modelId);
+  const provider = model?.provider || 'openai';
+
+  if (provider === 'openrouter') {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) {
+      throw new Error('OPENROUTER_API_KEY required for this model. Switch to an OpenAI model or add your OpenRouter key.');
+    }
+    return createOpenAI({
+      baseURL: 'https://openrouter.ai/api/v1',
+      apiKey,
+      headers: {
+        'HTTP-Referer': process.env.APP_URL || 'http://localhost:8081',
+        'X-Title': 'Blueprint Vision',
+      },
+    });
   }
-  
-  return createOpenAI({
-    baseURL: 'https://openrouter.ai/api/v1',
-    apiKey,
-    headers: {
-      'HTTP-Referer': process.env.APP_URL || 'http://localhost:8081',
-      'X-Title': 'Blueprint Vision',
-    },
-  });
+
+  // Default: OpenAI
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENAI_API_KEY is not set. Add it to your .env file.');
+  }
+  return createOpenAI({ apiKey });
 }
 
 /**
  * Enrich a user's simple idea into a detailed blueprint prompt
- * 
- * @param userInput - The user's casual description of what they want to visualize
- * @returns A detailed 500-1000 word blueprint specification
  */
-export async function enrichPrompt(userInput: string): Promise<string> {
-  const openrouter = getOpenRouterClient();
-  
-  // Using Claude Sonnet for best creative + instruction following balance
-  // Can also try: 'anthropic/claude-3-opus', 'openai/gpt-4o', 'google/gemini-pro-1.5'
-  const model = process.env.ENRICHMENT_MODEL || 'anthropic/claude-sonnet-4-20250514';
+export async function enrichPrompt(
+  userInput: string, 
+  modelId: string = 'gpt-4o'
+): Promise<{ enrichedPrompt: string; model: string }> {
+  const client = getLLMClient(modelId);
   
   const { text } = await generateText({
-    model: openrouter(model),
+    model: client(modelId),
     system: BLUEPRINT_ARCHITECT_SYSTEM_PROMPT,
     prompt: `Transform this concept into a detailed blueprint specification:\n\n"${userInput}"`,
     maxTokens: 1500,
-    temperature: 0.8, // A bit of creativity for the enrichment
+    temperature: 0.8,
   });
   
-  return text;
+  return {
+    enrichedPrompt: text,
+    model: modelId,
+  };
 }
 
 /**
- * Quick validation - is the enriched prompt good enough?
+ * Get available models based on configured API keys
  */
-export function validateEnrichedPrompt(prompt: string): boolean {
-  // Should be at least 300 words for a good blueprint spec
-  const wordCount = prompt.split(/\s+/).length;
-  return wordCount >= 200;
-}
+export function getAvailableModels() {
+  const hasOpenAI = !!process.env.OPENAI_API_KEY;
+  const hasOpenRouter = !!process.env.OPENROUTER_API_KEY;
 
-/**
- * Example transformations for reference:
- * 
- * INPUT: "the complexity of a project, like an iceberg"
- * OUTPUT: [500-1000 words describing underwater complexity, surface simplicity,
- *          hidden dependencies, title block "PROJECT ICEBERG - SURFACE ASSESSMENT",
- *          approved by "Captain Smith (Titanic)", revision history showing scope creep, etc.]
- * 
- * INPUT: "how the subconscious processes dreams"  
- * OUTPUT: [Detailed dream logic schematic with impossible geometries, Escher staircases,
- *          melting clocks, symbol processors, title block approved by Freud/Jung/Morpheus,
- *          revision history from "REM CYCLE 847", etc.]
- */
+  return AVAILABLE_MODELS.filter(model => {
+    if (model.provider === 'openai') return hasOpenAI;
+    if (model.provider === 'openrouter') return hasOpenRouter;
+    return false;
+  });
+}

@@ -3,9 +3,10 @@
  * HANDSOME CLAUDE IMPLEMENTATION 🎩
  * 
  * A beautiful chat-like interface for generating stunning blueprints
+ * Now with model selection dropdown!
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,63 +18,91 @@ import {
   ScrollView,
   Image,
   ActivityIndicator,
-  Animated,
+  Modal,
+  FlatList,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-// Generation states for rich UX
-type GenerationState = 
-  | 'idle' 
-  | 'enriching' 
-  | 'generating' 
-  | 'complete' 
-  | 'error';
+// Types
+type GenerationState = 'idle' | 'enriching' | 'generating' | 'complete' | 'error';
+
+interface Model {
+  id: string;
+  name: string;
+  provider: string;
+  description: string;
+}
 
 interface BlueprintResult {
   imageUrl: string;
   enrichedPrompt?: string;
 }
 
-// Status messages for each generation phase
+// Status messages
 const STATUS_MESSAGES: Record<GenerationState, string> = {
   idle: '',
-  enriching: '🧠 Transforming your vision into blueprint specs...',
-  generating: '⚙️ Rendering your blueprint...',
+  enriching: '🧠 Transforming your vision...',
+  generating: '⚙️ Rendering blueprint...',
   complete: '✨ Blueprint complete!',
   error: '❌ Something went wrong',
 };
 
 export default function HomeScreen() {
+  // State
   const [inputText, setInputText] = useState('');
   const [generationState, setGenerationState] = useState<GenerationState>('idle');
   const [statusMessage, setStatusMessage] = useState('');
   const [result, setResult] = useState<BlueprintResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [elapsedTime, setElapsedTime] = useState(0);
+  
+  // Model selection
+  const [models, setModels] = useState<Model[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>('gpt-4o');
+  const [showModelPicker, setShowModelPicker] = useState(false);
+
+  // Load available models on mount
+  useEffect(() => {
+    async function loadModels() {
+      try {
+        const res = await fetch('/api/models');
+        const data = await res.json();
+        setModels(data.models || []);
+        if (data.default) setSelectedModel(data.default);
+      } catch (err) {
+        console.error('Failed to load models:', err);
+        // Fallback models
+        setModels([
+          { id: 'gpt-4o', name: 'GPT-4o', provider: 'openai', description: 'Fast & capable' },
+          { id: 'gpt-4o-mini', name: 'GPT-4o Mini', provider: 'openai', description: 'Quick & affordable' },
+        ]);
+      }
+    }
+    loadModels();
+  }, []);
 
   const handleSubmit = useCallback(async () => {
     if (!inputText.trim()) return;
     
-    // Reset state
     setGenerationState('enriching');
     setStatusMessage(STATUS_MESSAGES.enriching);
     setResult(null);
     setError(null);
     setElapsedTime(0);
 
-    // Start elapsed time counter
     const startTime = Date.now();
     const timer = setInterval(() => {
       setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
     }, 1000);
 
     try {
-      // Step 1: Start the generation job
+      // Start generation with selected model
       const response = await fetch('/api/blueprint/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           userInput: inputText,
+          model: selectedModel,
           diagram_type: 'infographic',
           aspect_ratio: '16:9',
           resolution: '2K',
@@ -89,7 +118,7 @@ export default function HomeScreen() {
       setGenerationState('generating');
       setStatusMessage(STATUS_MESSAGES.generating);
 
-      // Step 2: Poll for completion
+      // Poll for completion
       let complete = false;
       while (!complete) {
         await new Promise(resolve => setTimeout(resolve, 2000));
@@ -99,8 +128,6 @@ export default function HomeScreen() {
 
         if (status.status === 'complete') {
           complete = true;
-          
-          // Step 3: Get the result
           const downloadRes = await fetch(`/api/blueprint/download/${jobId}`);
           const downloadData = await downloadRes.json();
           
@@ -114,7 +141,6 @@ export default function HomeScreen() {
         } else if (status.status === 'failed') {
           throw new Error(status.error || 'Generation failed');
         }
-        // Otherwise keep polling...
       }
 
     } catch (err) {
@@ -125,7 +151,7 @@ export default function HomeScreen() {
     } finally {
       clearInterval(timer);
     }
-  }, [inputText]);
+  }, [inputText, selectedModel]);
 
   const handleReset = () => {
     setGenerationState('idle');
@@ -135,6 +161,7 @@ export default function HomeScreen() {
     setElapsedTime(0);
   };
 
+  const currentModel = models.find(m => m.id === selectedModel);
   const isProcessing = generationState === 'enriching' || generationState === 'generating';
 
   return (
@@ -154,7 +181,21 @@ export default function HomeScreen() {
           </Text>
         </View>
 
-        {/* Instruction - only show when idle */}
+        {/* Model Selector */}
+        <TouchableOpacity 
+          style={styles.modelSelector}
+          onPress={() => setShowModelPicker(true)}
+          disabled={isProcessing}
+        >
+          <View style={styles.modelInfo}>
+            <Ionicons name="hardware-chip-outline" size={18} color="#4fd1c5" />
+            <Text style={styles.modelName}>{currentModel?.name || 'Select Model'}</Text>
+            <Text style={styles.modelDescription}>{currentModel?.description}</Text>
+          </View>
+          <Ionicons name="chevron-down" size={20} color="#5a7a9a" />
+        </TouchableOpacity>
+
+        {/* Instructions - only show when idle */}
         {generationState === 'idle' && !result && (
           <>
             <View style={styles.instructionContainer}>
@@ -185,12 +226,8 @@ export default function HomeScreen() {
             <View style={styles.loadingContainer}>
               <ActivityIndicator size="large" color="#4fd1c5" />
               <Text style={styles.loadingText}>{statusMessage}</Text>
+              <Text style={styles.modelUsed}>Using {currentModel?.name}</Text>
               <Text style={styles.elapsedText}>{elapsedTime}s elapsed</Text>
-              {generationState === 'generating' && (
-                <Text style={styles.loadingHint}>
-                  Blueprint generation typically takes 15-30 seconds
-                </Text>
-              )}
             </View>
           ) : result ? (
             <View style={styles.resultContainer}>
@@ -253,6 +290,55 @@ export default function HomeScreen() {
         </View>
         <Text style={styles.charCount}>{inputText.length}/500</Text>
       </View>
+
+      {/* Model Picker Modal */}
+      <Modal
+        visible={showModelPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowModelPicker(false)}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowModelPicker(false)}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select AI Model</Text>
+              <TouchableOpacity onPress={() => setShowModelPicker(false)}>
+                <Ionicons name="close" size={24} color="#8ba3be" />
+              </TouchableOpacity>
+            </View>
+            
+            <FlatList
+              data={models}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[
+                    styles.modelOption,
+                    item.id === selectedModel && styles.modelOptionSelected,
+                  ]}
+                  onPress={() => {
+                    setSelectedModel(item.id);
+                    setShowModelPicker(false);
+                  }}
+                >
+                  <View style={styles.modelOptionContent}>
+                    <Text style={styles.modelOptionName}>{item.name}</Text>
+                    <Text style={styles.modelOptionDesc}>{item.description}</Text>
+                    <Text style={styles.modelOptionProvider}>{item.provider}</Text>
+                  </View>
+                  {item.id === selectedModel && (
+                    <Ionicons name="checkmark-circle" size={24} color="#4fd1c5" />
+                  )}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -268,7 +354,7 @@ const styles = StyleSheet.create({
   },
   headerSection: {
     alignItems: 'center',
-    marginBottom: 24,
+    marginBottom: 16,
     paddingTop: 20,
   },
   title: {
@@ -281,6 +367,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#8ba3be',
     textAlign: 'center',
+  },
+  modelSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#1a365d',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  modelInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  modelName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#e2e8f0',
+  },
+  modelDescription: {
+    fontSize: 12,
+    color: '#5a7a9a',
   },
   instructionContainer: {
     flexDirection: 'row',
@@ -316,7 +425,7 @@ const styles = StyleSheet.create({
   },
   displayArea: {
     flex: 1,
-    minHeight: 350,
+    minHeight: 300,
     backgroundColor: '#0a1628',
     borderRadius: 16,
     borderWidth: 1,
@@ -337,22 +446,20 @@ const styles = StyleSheet.create({
   loadingContainer: {
     alignItems: 'center',
     padding: 20,
-    gap: 16,
+    gap: 12,
   },
   loadingText: {
     fontSize: 16,
     color: '#4fd1c5',
     textAlign: 'center',
   },
+  modelUsed: {
+    fontSize: 12,
+    color: '#5a7a9a',
+  },
   elapsedText: {
     fontSize: 14,
     color: '#5a7a9a',
-  },
-  loadingHint: {
-    fontSize: 12,
-    color: '#3a5a7a',
-    fontStyle: 'italic',
-    marginTop: 8,
   },
   resultContainer: {
     width: '100%',
@@ -444,5 +551,65 @@ const styles = StyleSheet.create({
     textAlign: 'right',
     marginTop: 4,
     marginRight: 8,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#0d1b2a',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '60%',
+    paddingBottom: Platform.OS === 'ios' ? 34 : 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a365d',
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: '#e2e8f0',
+  },
+  modelOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 16,
+    marginHorizontal: 16,
+    marginVertical: 4,
+    borderRadius: 12,
+    backgroundColor: '#1a365d',
+  },
+  modelOptionSelected: {
+    backgroundColor: '#234a73',
+    borderWidth: 1,
+    borderColor: '#4fd1c5',
+  },
+  modelOptionContent: {
+    flex: 1,
+  },
+  modelOptionName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#e2e8f0',
+    marginBottom: 2,
+  },
+  modelOptionDesc: {
+    fontSize: 13,
+    color: '#8ba3be',
+    marginBottom: 2,
+  },
+  modelOptionProvider: {
+    fontSize: 11,
+    color: '#5a7a9a',
+    textTransform: 'uppercase',
   },
 });

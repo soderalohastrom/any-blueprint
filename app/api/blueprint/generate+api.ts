@@ -3,17 +3,18 @@
  * 
  * POST /api/blueprint/generate
  * 
- * Takes user input, enriches it with LLM, and starts blueprint generation.
+ * Takes user input, enriches it with selected LLM, and starts blueprint generation.
  */
 
 import { enrichPrompt } from '../../../lib/prompt-enrichment';
 
 // In-memory job store (replace with Redis/DB for production)
 const jobs = new Map<string, {
-  status: 'pending' | 'generating' | 'complete' | 'failed';
+  status: 'pending' | 'enriching' | 'generating' | 'complete' | 'failed';
   enrichedPrompt?: string;
   imageUrl?: string;
   error?: string;
+  model?: string;
   createdAt: number;
 }>();
 
@@ -25,7 +26,7 @@ function generateJobId(): string {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { userInput, diagram_type, aspect_ratio, resolution } = body;
+    const { userInput, model, diagram_type, aspect_ratio, resolution } = body;
 
     if (!userInput || typeof userInput !== 'string') {
       return Response.json(
@@ -38,11 +39,12 @@ export async function POST(request: Request) {
     const jobId = generateJobId();
     jobs.set(jobId, {
       status: 'pending',
+      model: model || 'gpt-4o',
       createdAt: Date.now(),
     });
 
     // Start async processing
-    processBlueprint(jobId, userInput, { diagram_type, aspect_ratio, resolution });
+    processBlueprint(jobId, userInput, model || 'gpt-4o', { diagram_type, aspect_ratio, resolution });
 
     return Response.json({
       jobId,
@@ -65,24 +67,23 @@ export async function POST(request: Request) {
 async function processBlueprint(
   jobId: string,
   userInput: string,
+  model: string,
   options: { diagram_type?: string; aspect_ratio?: string; resolution?: string }
 ) {
   const job = jobs.get(jobId);
   if (!job) return;
 
   try {
-    // Step 1: Enrich the prompt
-    console.log(`[${jobId}] Enriching prompt...`);
-    job.status = 'generating';
+    // Step 1: Enrich the prompt with selected model
+    console.log(`[${jobId}] Enriching prompt with ${model}...`);
+    job.status = 'enriching';
     
-    const enrichedPrompt = await enrichPrompt(userInput);
+    const { enrichedPrompt } = await enrichPrompt(userInput, model);
     job.enrichedPrompt = enrichedPrompt;
     console.log(`[${jobId}] Enriched prompt (${enrichedPrompt.length} chars)`);
 
     // Step 2: Call Blueprint MCP
-    // TODO: Replace with actual Blueprint MCP call once we have the endpoint
-    // For now, using a placeholder that demonstrates the flow
-    
+    job.status = 'generating';
     console.log(`[${jobId}] Calling Blueprint MCP...`);
     const imageUrl = await callBlueprintMCP(enrichedPrompt, options);
     
@@ -99,8 +100,6 @@ async function processBlueprint(
 
 /**
  * Call the Blueprint MCP service
- * 
- * TODO: Replace with actual Arcade SSE or direct API call
  */
 async function callBlueprintMCP(
   description: string,
@@ -108,22 +107,20 @@ async function callBlueprintMCP(
 ): Promise<string> {
   const mcpUrl = process.env.BLUEPRINT_MCP_URL;
   
-  if (mcpUrl && mcpUrl !== 'https://your-arcade-instance.arcade.dev/sse') {
+  if (mcpUrl && mcpUrl.length > 0) {
     // Real MCP call - implement when we have the endpoint
-    // This would use the Arcade SSE protocol or direct API
     throw new Error('Blueprint MCP integration pending - need endpoint URL');
   }
   
   // Mock implementation for testing the flow
-  // Simulates a 5-10 second generation time
-  await new Promise(resolve => setTimeout(resolve, 5000 + Math.random() * 5000));
+  console.log(`[MOCK] Would generate blueprint with ${description.length} char prompt`);
+  await new Promise(resolve => setTimeout(resolve, 3000 + Math.random() * 3000));
   
-  // Return a placeholder blueprint image
-  // These are real blueprint-style images from Unsplash
+  // Return placeholder blueprint images
   const placeholders = [
-    'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=1920&q=80', // Architecture
-    'https://images.unsplash.com/photo-1581094271901-8022df4466f9?w=1920&q=80', // Technical
-    'https://images.unsplash.com/photo-1545670723-196ed0954986?w=1920&q=80', // Blueprint
+    'https://images.unsplash.com/photo-1503387762-592deb58ef4e?w=1920&q=80',
+    'https://images.unsplash.com/photo-1581094271901-8022df4466f9?w=1920&q=80',
+    'https://images.unsplash.com/photo-1545670723-196ed0954986?w=1920&q=80',
   ];
   
   return placeholders[Math.floor(Math.random() * placeholders.length)];
