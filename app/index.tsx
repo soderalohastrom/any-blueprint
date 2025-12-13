@@ -20,7 +20,10 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-const API_URL = 'http://localhost:3001';
+// Use relative paths for Netlify, localhost for dev
+const API_URL = typeof window !== 'undefined' && window.location.hostname !== 'localhost' 
+  ? '' 
+  : 'http://localhost:3001';
 
 type GenerationState = 'idle' | 'enriching' | 'generating' | 'complete' | 'error';
 
