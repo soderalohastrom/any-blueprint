@@ -103,28 +103,37 @@ export default function HomeScreen() {
         throw new Error(err.error || 'Failed to start');
       }
 
-      const { jobId } = await response.json();
+      const data = await response.json();
 
-      let complete = false;
-      while (!complete) {
-        await new Promise(r => setTimeout(r, 1500));
-        
-        const statusRes = await fetch(`${API_URL}/api/status/${jobId}`);
-        const status = await statusRes.json();
-
-        if (status.status === 'generating') {
-          setGenerationState('generating');
-          setStatusMessage(STATUS_MESSAGES.generating);
-        } else if (status.status === 'complete') {
-          complete = true;
-          const resultRes = await fetch(`${API_URL}/api/result/${jobId}`);
-          const data = await resultRes.json();
+      // Check if response is synchronous (Netlify) or async (local Express)
+      if (data.imageUrl) {
+        // Synchronous response - already complete
+        setResult({ imageUrl: data.imageUrl, enrichedPrompt: data.enrichedPrompt });
+        setGenerationState('complete');
+        setStatusMessage(STATUS_MESSAGES.complete);
+      } else if (data.jobId) {
+        // Async response - need to poll
+        let complete = false;
+        while (!complete) {
+          await new Promise(r => setTimeout(r, 1500));
           
-          setResult({ imageUrl: data.imageUrl, enrichedPrompt: data.enrichedPrompt });
-          setGenerationState('complete');
-          setStatusMessage(STATUS_MESSAGES.complete);
-        } else if (status.status === 'failed') {
-          throw new Error(status.error || 'Generation failed');
+          const statusRes = await fetch(`${API_URL}/api/status/${data.jobId}`);
+          const status = await statusRes.json();
+
+          if (status.status === 'generating') {
+            setGenerationState('generating');
+            setStatusMessage(STATUS_MESSAGES.generating);
+          } else if (status.status === 'complete') {
+            complete = true;
+            const resultRes = await fetch(`${API_URL}/api/result/${data.jobId}`);
+            const resultData = await resultRes.json();
+            
+            setResult({ imageUrl: resultData.imageUrl, enrichedPrompt: resultData.enrichedPrompt });
+            setGenerationState('complete');
+            setStatusMessage(STATUS_MESSAGES.complete);
+          } else if (status.status === 'failed') {
+            throw new Error(status.error || 'Generation failed');
+          }
         }
       }
     } catch (err) {
