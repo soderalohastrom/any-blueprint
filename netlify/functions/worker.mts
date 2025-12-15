@@ -70,7 +70,7 @@ async function uploadToImgBB(base64Image: string, apiKey: string, filename: stri
  */
 async function generateWithGemini(prompt: string, apiKey: string): Promise<string> {
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-image-preview:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -117,10 +117,10 @@ export default async (req: Request) => {
     
     // Get API keys
     const openaiKey = Netlify.env.get("OPENAI_API_KEY");
-    const googleKey = Netlify.env.get("GOOGLE_API_KEY");
+    const geminiKey = Netlify.env.get("GEMINI_API_KEY");
     const imgbbKey = Netlify.env.get("IMGBB_API_KEY");
 
-    if (!openaiKey || !googleKey || !imgbbKey) {
+    if (!openaiKey || !geminiKey || !imgbbKey) {
       await store.setJSON(jobId, {
         status: 'error',
         error: 'Missing API keys',
@@ -182,7 +182,7 @@ export default async (req: Request) => {
       updatedAt: Date.now(),
     });
 
-    const base64Image = await generateWithGemini(enrichedPrompt, googleKey);
+    const base64Image = await generateWithGemini(enrichedPrompt, geminiKey);
     
     console.log(`[${jobId}] Step 2 complete (${base64Image.length} chars)`);
 
