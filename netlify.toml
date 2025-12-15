@@ -1,5 +1,5 @@
 [build]
-  command = "npm run build:web"
+  command = "echo 'Using pre-built dist'"
   publish = "dist"
   functions = "netlify/functions"
 
