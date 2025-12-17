@@ -34,10 +34,36 @@ interface Model {
   description: string;
 }
 
+interface BlueprintStyle {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
+interface ImageEngine {
+  id: string;
+  name: string;
+  icon: string;
+  description: string;
+}
+
 interface BlueprintResult {
   imageUrl: string;
   enrichedPrompt?: string;
 }
+
+const BLUEPRINT_STYLES: BlueprintStyle[] = [
+  { id: 'generic', name: 'Generic', icon: '📐', description: 'Versatile technical blueprint' },
+  { id: 'architecture', name: 'Architecture', icon: '🏗️', description: 'System architecture diagrams' },
+  { id: 'flowchart', name: 'Flowchart', icon: '🔀', description: 'Process flow visualizations' },
+  { id: 'infographic', name: 'Infographic', icon: '📊', description: 'Data-rich visual explanations' },
+];
+
+const IMAGE_ENGINES: ImageEngine[] = [
+  { id: 'gemini-3-pro', name: 'Gemini 3 Pro', icon: '✨', description: 'Google\'s latest image model' },
+  { id: 'gpt-image-1.5', name: 'GPT Image 1.5', icon: '🎨', description: 'OpenAI\'s premium renderer' },
+];
 
 const STATUS_MESSAGES: Record<GenerationState, string> = {
   idle: '',
@@ -58,6 +84,14 @@ export default function HomeScreen() {
   const [models, setModels] = useState<Model[]>([]);
   const [selectedModel, setSelectedModel] = useState<string>('gpt-4o');
   const [showModelPicker, setShowModelPicker] = useState(false);
+  
+  // Blueprint Style state
+  const [selectedStyle, setSelectedStyle] = useState<string>('generic');
+  const [showStylePicker, setShowStylePicker] = useState(false);
+  
+  // Image Engine state
+  const [selectedEngine, setSelectedEngine] = useState<string>('gemini-3-pro');
+  const [showEnginePicker, setShowEnginePicker] = useState(false);
 
   useEffect(() => {
     async function loadModels() {
@@ -95,7 +129,12 @@ export default function HomeScreen() {
       const response = await fetch(`${API_URL}/api/generate`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userInput: inputText, model: selectedModel }),
+        body: JSON.stringify({ 
+          userInput: inputText, 
+          model: selectedModel,
+          diagramType: selectedStyle,
+          imageModel: selectedEngine,
+        }),
       });
 
       if (!response.ok) {
@@ -155,6 +194,8 @@ export default function HomeScreen() {
   };
 
   const currentModel = models.find(m => m.id === selectedModel);
+  const currentStyle = BLUEPRINT_STYLES.find(s => s.id === selectedStyle);
+  const currentEngine = IMAGE_ENGINES.find(e => e.id === selectedEngine);
   const isProcessing = generationState === 'enriching' || generationState === 'generating';
 
   return (
@@ -177,6 +218,34 @@ export default function HomeScreen() {
             <Ionicons name="hardware-chip-outline" size={18} color="#4fd1c5" />
             <Text style={styles.modelName}>{currentModel?.name || 'Select Model'}</Text>
             <Text style={styles.modelDescription}>{currentModel?.description}</Text>
+          </View>
+          <Ionicons name="chevron-down" size={20} color="#5a7a9a" />
+        </TouchableOpacity>
+
+        {/* Blueprint Style Selector */}
+        <TouchableOpacity 
+          style={styles.modelSelector}
+          onPress={() => setShowStylePicker(true)}
+          disabled={isProcessing}
+        >
+          <View style={styles.modelInfo}>
+            <Text style={styles.selectorIcon}>{currentStyle?.icon}</Text>
+            <Text style={styles.modelName}>{currentStyle?.name || 'Blueprint Style'}</Text>
+            <Text style={styles.modelDescription}>{currentStyle?.description}</Text>
+          </View>
+          <Ionicons name="chevron-down" size={20} color="#5a7a9a" />
+        </TouchableOpacity>
+
+        {/* Image Engine Selector */}
+        <TouchableOpacity 
+          style={styles.modelSelector}
+          onPress={() => setShowEnginePicker(true)}
+          disabled={isProcessing}
+        >
+          <View style={styles.modelInfo}>
+            <Text style={styles.selectorIcon}>{currentEngine?.icon}</Text>
+            <Text style={styles.modelName}>{currentEngine?.name || 'Image Engine'}</Text>
+            <Text style={styles.modelDescription}>{currentEngine?.description}</Text>
           </View>
           <Ionicons name="chevron-down" size={20} color="#5a7a9a" />
         </TouchableOpacity>
@@ -292,6 +361,66 @@ export default function HomeScreen() {
           </View>
         </TouchableOpacity>
       </Modal>
+
+      {/* Blueprint Style Picker Modal */}
+      <Modal visible={showStylePicker} transparent animationType="slide" onRequestClose={() => setShowStylePicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowStylePicker(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Blueprint Style</Text>
+              <TouchableOpacity onPress={() => setShowStylePicker(false)}>
+                <Ionicons name="close" size={24} color="#8ba3be" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={BLUEPRINT_STYLES}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modelOption, item.id === selectedStyle && styles.modelOptionSelected]}
+                  onPress={() => { setSelectedStyle(item.id); setShowStylePicker(false); }}
+                >
+                  <View style={styles.modelOptionContent}>
+                    <Text style={styles.modelOptionName}>{item.icon} {item.name}</Text>
+                    <Text style={styles.modelOptionDesc}>{item.description}</Text>
+                  </View>
+                  {item.id === selectedStyle && <Ionicons name="checkmark-circle" size={24} color="#4fd1c5" />}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
+
+      {/* Image Engine Picker Modal */}
+      <Modal visible={showEnginePicker} transparent animationType="slide" onRequestClose={() => setShowEnginePicker(false)}>
+        <TouchableOpacity style={styles.modalOverlay} activeOpacity={1} onPress={() => setShowEnginePicker(false)}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Image Engine</Text>
+              <TouchableOpacity onPress={() => setShowEnginePicker(false)}>
+                <Ionicons name="close" size={24} color="#8ba3be" />
+              </TouchableOpacity>
+            </View>
+            <FlatList
+              data={IMAGE_ENGINES}
+              keyExtractor={(item) => item.id}
+              renderItem={({ item }) => (
+                <TouchableOpacity
+                  style={[styles.modelOption, item.id === selectedEngine && styles.modelOptionSelected]}
+                  onPress={() => { setSelectedEngine(item.id); setShowEnginePicker(false); }}
+                >
+                  <View style={styles.modelOptionContent}>
+                    <Text style={styles.modelOptionName}>{item.icon} {item.name}</Text>
+                    <Text style={styles.modelOptionDesc}>{item.description}</Text>
+                  </View>
+                  {item.id === selectedEngine && <Ionicons name="checkmark-circle" size={24} color="#4fd1c5" />}
+                </TouchableOpacity>
+              )}
+            />
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -306,6 +435,7 @@ const styles = StyleSheet.create({
   modelInfo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   modelName: { fontSize: 14, fontWeight: '600', color: '#e2e8f0' },
   modelDescription: { fontSize: 12, color: '#5a7a9a' },
+  selectorIcon: { fontSize: 18 },
   instructionContainer: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#1a365d', padding: 16, borderRadius: 12, marginBottom: 20, gap: 12 },
   instruction: { flex: 1, fontSize: 14, color: '#cbd5e0', lineHeight: 20 },
   examplesContainer: { marginBottom: 24 },
